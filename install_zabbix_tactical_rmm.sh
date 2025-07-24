@@ -126,8 +126,8 @@ else
 fi
 
 # Detectar DNS servers
-DNS_SERVERS=$(systemd-resolve --status | grep "DNS Servers" | head -1 | awk '{print $3,$4}' | tr ' ' ',')
-if [[ -z "$DNS_SERVERS" ]]; then
+DNS_SERVERS=$(systemd-resolve --status 2>/dev/null | grep "DNS Servers" | head -1 | awk '{print $3,$4}' | tr ' ' ',' || echo "8.8.8.8,8.8.4.4")
+if [[ -z "$DNS_SERVERS" ]] || [[ "$DNS_SERVERS" == "," ]]; then
     DNS_SERVERS="8.8.8.8,8.8.4.4"
     warning "Usando DNS padrão: $DNS_SERVERS"
 fi
@@ -138,48 +138,6 @@ sudo apt-get upgrade -y
 
 log "Instalando pacotes básicos..."
 sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader curl wget -y
-
-# Configurar IP (fixo ou manter DHCP)
-if [[ "$KEEP_DHCP" == "true" ]]; then
-    log "Mantendo configuração DHCP atual..."
-    info "IP atual será mantido via DHCP: $CURRENT_IP"
-    FINAL_IP="$CURRENT_IP (DHCP)"
-else
-    log "Configurando IP fixo..."
-    NETPLAN_FILE="/etc/netplan/01-netcfg.yaml"
-
-    # Backup da configuração atual
-    sudo cp $NETPLAN_FILE ${NETPLAN_FILE}.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
-
-    # Criar nova configuração netplan
-    sudo tee $NETPLAN_FILE > /dev/null <<EOF
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    $INTERFACE:
-      dhcp4: false
-      addresses:
-        - $FIXED_IP/24
-      gateway4: $GATEWAY
-      nameservers:
-        addresses: [$(echo $DNS_SERVERS | tr ',' ' ')]
-EOF
-
-    log "Aplicando configuração de rede..."
-    sudo netplan apply
-
-    # Aguardar estabilização da rede
-    sleep 5
-
-    # Verificar conectividade
-    if ! ping -c 3 8.8.8.8 > /dev/null 2>&1; then
-        error "Falha na conectividade após configurar IP fixo. Verifique as configurações."
-    fi
-
-    log "IP fixo configurado com sucesso: $FIXED_IP"
-    FINAL_IP="$FIXED_IP (Fixo)"
-fi
 
 # Instalar Zabbix
 log "Baixando e instalando Zabbix 7.0..."
@@ -349,6 +307,56 @@ sudo ufw allow 10051/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw --force enable
+
+# Configurar IP (fixo ou manter DHCP) - APÓS todas as instalações
+log "Configurando rede..."
+if [[ "$KEEP_DHCP" == "true" ]]; then
+    log "Mantendo configuração DHCP atual..."
+    info "IP atual será mantido via DHCP: $CURRENT_IP"
+    FINAL_IP="$CURRENT_IP (DHCP)"
+else
+    log "Configurando IP fixo..."
+    NETPLAN_FILE="/etc/netplan/01-netcfg.yaml"
+
+    # Backup da configuração atual
+    sudo cp $NETPLAN_FILE ${NETPLAN_FILE}.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+
+    # Formatar DNS servers corretamente para netplan
+    DNS_ARRAY=$(echo $DNS_SERVERS | sed 's/,/, /g')
+
+    # Criar nova configuração netplan
+    sudo tee $NETPLAN_FILE > /dev/null <<EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    $INTERFACE:
+      dhcp4: false
+      addresses:
+        - $FIXED_IP/24
+      routes:
+        - to: default
+          via: $GATEWAY
+      nameservers:
+        addresses: [$DNS_ARRAY]
+EOF
+
+    log "Aplicando configuração de rede..."
+    sudo netplan apply
+
+    # Aguardar estabilização da rede
+    sleep 5
+
+    # Verificar conectividade
+    if ! ping -c 3 8.8.8.8 > /dev/null 2>&1; then
+        warning "Possível problema de conectividade após configurar IP fixo."
+        info "Você pode restaurar o backup: sudo cp ${NETPLAN_FILE}.backup.* $NETPLAN_FILE && sudo netplan apply"
+    else
+        log "IP fixo configurado com sucesso: $FIXED_IP"
+    fi
+
+    FINAL_IP="$FIXED_IP (Fixo)"
+fi
 
 log "Instalação concluída com sucesso!"
 echo
