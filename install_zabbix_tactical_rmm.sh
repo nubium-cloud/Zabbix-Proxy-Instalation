@@ -137,7 +137,7 @@ sudo apt-get update -y
 sudo apt-get upgrade -y
 
 log "Instalando pacotes básicos..."
-sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader curl wget -y
+sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader iputils-ping net-tools curl wget -y
 
 # Verificar se Zabbix já está instalado e se arquivos .conf existem
 ZABBIX_PROXY_INSTALLED=false
