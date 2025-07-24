@@ -154,67 +154,23 @@ log "Configurando Zabbix Proxy..."
 # Backup da configuração original
 sudo cp /etc/zabbix/zabbix_proxy.conf /etc/zabbix/zabbix_proxy.conf.backup
 
-# Configurar zabbix_proxy.conf
-sudo tee /etc/zabbix/zabbix_proxy.conf > /dev/null <<EOF
-# Configuração do Zabbix Proxy
-# Gerado automaticamente em $(date)
-
-ProxyMode=0
-Server=monitora.nvirtual.com.br
-Hostname=$ZABBIX_HOSTNAME
-ListenPort=10051
-SourceIP=$FIXED_IP
-
-# Database
-DBHost=localhost
-DBName=/tmp/zabbix
-DBUser=
-DBPassword=
-
-# Performance
-StartPollers=20
-StartPingers=10
-StartDiscoverers=10
-StartPollersUnreachable=10
-StartTrappers=5
-StartDBSyncers=4
-
-# Remote commands
-EnableRemoteCommands=1
-
-# Logging
-LogFile=/var/log/zabbix/zabbix_proxy.log
-LogFileSize=10
-DebugLevel=3
-
-# Other
-ProxyLocalBuffer=0
-ProxyOfflineBuffer=1
-HeartbeatFrequency=60
-ConfigFrequency=3600
-DataSenderFrequency=1
-
-Timeout=4
-TrapperTimeout=300
-UnreachablePeriod=45
-UnavailableDelay=60
-UnreachableDelay=15
-
-# SNMP
-SNMPTrapperFile=/var/log/snmptrap/snmptrap.log
-StartSNMPTrapper=0
-
-# Housekeeping
-HousekeepingFrequency=1
-MaxHousekeeperDelete=5000
-
-# Cache
-CacheSize=8M
-HistoryCacheSize=16M
-HistoryIndexCacheSize=4M
-TrendCacheSize=4M
-ValueCacheSize=8M
-EOF
+# Alterar apenas as linhas específicas no arquivo de configuração
+sudo sed -i "s/^# Server=.*/Server=monitora.nvirtual.com.br/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^Server=.*/Server=monitora.nvirtual.com.br/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# Hostname=.*/Hostname=$ZABBIX_HOSTNAME/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^Hostname=.*/Hostname=$ZABBIX_HOSTNAME/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# DBName=.*/DBName=\/tmp\/zabbix/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^DBName=.*/DBName=\/tmp\/zabbix/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# StartPollers=.*/StartPollers=20/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^StartPollers=.*/StartPollers=20/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# StartPingers=.*/StartPingers=10/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^StartPingers=.*/StartPingers=10/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# StartDiscoverers=.*/StartDiscoverers=10/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^StartDiscoverers=.*/StartDiscoverers=10/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^# StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
+sudo sed -i "s/^StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
 
 log "Instalando Zabbix Agent..."
 sudo apt-get install zabbix-agent -y
@@ -223,43 +179,15 @@ log "Configurando Zabbix Agent..."
 # Backup da configuração original
 sudo cp /etc/zabbix/zabbix_agentd.conf /etc/zabbix/zabbix_agentd.conf.backup
 
-# Configurar zabbix_agentd.conf
-sudo tee /etc/zabbix/zabbix_agentd.conf > /dev/null <<EOF
-# Configuração do Zabbix Agent
-# Gerado automaticamente em $(date)
-
-PidFile=/var/run/zabbix/zabbix_agentd.pid
-LogFile=/var/log/zabbix/zabbix_agentd.log
-LogFileSize=10
-DebugLevel=3
-
-Server=127.0.0.1
-ListenPort=10050
-ListenIP=0.0.0.0
-StartAgents=3
-
-ServerActive=127.0.0.1
-Hostname=$ZABBIX_HOSTNAME
-HostnameItem=system.hostname
-
-RefreshActiveChecks=120
-BufferSend=5
-BufferSize=100
-MaxLinesPerSecond=20
-
-# User parameters
-AllowRoot=0
-User=zabbix
-
-# Security
-EnableRemoteCommands=1
-LogRemoteCommands=1
-
-Timeout=3
-Include=/etc/zabbix/zabbix_agentd.d/*.conf
-
-UnsafeUserParameters=0
-EOF
+# Alterar apenas as linhas específicas no arquivo de configuração
+sudo sed -i "s/^# Server=.*/Server=127.0.0.1/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^Server=.*/Server=127.0.0.1/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^# ServerActive=.*/ServerActive=127.0.0.1/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^ServerActive=.*/ServerActive=127.0.0.1/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^# Hostname=.*/Hostname=$ZABBIX_HOSTNAME/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^Hostname=.*/Hostname=$ZABBIX_HOSTNAME/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^# EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/zabbix_agentd.conf
+sudo sed -i "s/^EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/zabbix_agentd.conf
 
 log "Habilitando e iniciando serviços Zabbix..."
 sudo systemctl enable zabbix-agent
