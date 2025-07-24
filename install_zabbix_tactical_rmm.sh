@@ -139,46 +139,75 @@ sudo apt-get upgrade -y
 log "Instalando pacotes básicos..."
 sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader curl wget -y
 
-# Verificar se Zabbix já está instalado
+# Verificar se Zabbix já está instalado e se arquivos .conf existem
 ZABBIX_PROXY_INSTALLED=false
 ZABBIX_AGENT_INSTALLED=false
+ZABBIX_PROXY_CONF_EXISTS=false
+ZABBIX_AGENT_CONF_EXISTS=false
 
 if dpkg -l | grep -q "zabbix-proxy"; then
-    warning "Zabbix Proxy já está instalado. Será reconfigurado."
     ZABBIX_PROXY_INSTALLED=true
+    if [[ -f "/etc/zabbix/zabbix_proxy.conf" ]]; then
+        ZABBIX_PROXY_CONF_EXISTS=true
+        warning "Zabbix Proxy já está instalado com arquivo de configuração. Será reconfigurado."
+    else
+        warning "Zabbix Proxy instalado mas arquivo .conf não existe. Será reinstalado completamente."
+    fi
 fi
 
 if dpkg -l | grep -q "zabbix-agent"; then
-    warning "Zabbix Agent já está instalado. Será reconfigurado."
     ZABBIX_AGENT_INSTALLED=true
+    if [[ -f "/etc/zabbix/zabbix_agentd.conf" ]]; then
+        ZABBIX_AGENT_CONF_EXISTS=true
+        warning "Zabbix Agent já está instalado com arquivo de configuração. Será reconfigurado."
+    else
+        warning "Zabbix Agent instalado mas arquivo .conf não existe. Será reinstalado completamente."
+    fi
 fi
 
-# Instalar Zabbix se não estiver instalado
-if [[ "$ZABBIX_PROXY_INSTALLED" == "false" ]] || [[ "$ZABBIX_AGENT_INSTALLED" == "false" ]]; then
-    log "Baixando e instalando Zabbix 7.0..."
+# Instalar/Reinstalar Zabbix conforme necessário
+NEED_PROXY_INSTALL=false
+NEED_AGENT_INSTALL=false
+
+if [[ "$ZABBIX_PROXY_INSTALLED" == "false" ]] || [[ "$ZABBIX_PROXY_CONF_EXISTS" == "false" ]]; then
+    NEED_PROXY_INSTALL=true
+fi
+
+if [[ "$ZABBIX_AGENT_INSTALLED" == "false" ]] || [[ "$ZABBIX_AGENT_CONF_EXISTS" == "false" ]]; then
+    NEED_AGENT_INSTALL=true
+fi
+
+if [[ "$NEED_PROXY_INSTALL" == "true" ]] || [[ "$NEED_AGENT_INSTALL" == "true" ]]; then
+    log "Configurando repositório e instalando/reinstalando Zabbix..."
     cd /tmp
 
     # Verificar se o repositório já foi adicionado
     if ! dpkg -l | grep -q "zabbix-release"; then
+        log "Adicionando repositório Zabbix 7.0..."
         wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
         sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
         sudo apt-get update -y
     fi
 
-    if [[ "$ZABBIX_PROXY_INSTALLED" == "false" ]]; then
-        log "Instalando Zabbix Proxy SQLite3..."
-        sudo apt-get install zabbix-proxy-sqlite3 -y
+    if [[ "$NEED_PROXY_INSTALL" == "true" ]]; then
+        if [[ "$ZABBIX_PROXY_INSTALLED" == "true" ]]; then
+            log "Reinstalando Zabbix Proxy SQLite3 (arquivo .conf ausente)..."
+            sudo apt-get remove --purge zabbix-proxy-sqlite3 -y
+            sudo apt-get install zabbix-proxy-sqlite3 -y
+        else
+            log "Instalando Zabbix Proxy SQLite3..."
+            sudo apt-get install zabbix-proxy-sqlite3 -y
+        fi
     fi
 else
-    log "Zabbix já instalado. Prosseguindo com reconfiguração..."
+    log "Zabbix já instalado com arquivos de configuração. Prosseguindo com reconfiguração..."
 fi
 
 log "Configurando Zabbix Proxy..."
 
-# Se Zabbix já estava instalado, reinstalar arquivo de configuração limpo
-if [[ "$ZABBIX_PROXY_INSTALLED" == "true" ]]; then
-    log "Reinstalando arquivo de configuração do Zabbix Proxy..."
-    sudo apt-get install --reinstall zabbix-proxy-sqlite3 -y
+# Verificar se arquivo de configuração existe
+if [[ ! -f "/etc/zabbix/zabbix_proxy.conf" ]]; then
+    error "Arquivo /etc/zabbix/zabbix_proxy.conf não encontrado após instalação. Verifique a instalação do Zabbix Proxy."
 fi
 
 # Backup da configuração original
@@ -202,17 +231,22 @@ sudo sed -i "s/^StartDiscoverers=.*/StartDiscoverers=10/" /etc/zabbix/zabbix_pro
 sudo sed -i "s/^# StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
 sudo sed -i "s/^StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
 
-if [[ "$ZABBIX_AGENT_INSTALLED" == "false" ]]; then
-    log "Instalando Zabbix Agent..."
-    sudo apt-get install zabbix-agent -y
+if [[ "$NEED_AGENT_INSTALL" == "true" ]]; then
+    if [[ "$ZABBIX_AGENT_INSTALLED" == "true" ]]; then
+        log "Reinstalando Zabbix Agent (arquivo .conf ausente)..."
+        sudo apt-get remove --purge zabbix-agent -y
+        sudo apt-get install zabbix-agent -y
+    else
+        log "Instalando Zabbix Agent..."
+        sudo apt-get install zabbix-agent -y
+    fi
 fi
 
 log "Configurando Zabbix Agent..."
 
-# Se Zabbix Agent já estava instalado, reinstalar arquivo de configuração limpo
-if [[ "$ZABBIX_AGENT_INSTALLED" == "true" ]]; then
-    log "Reinstalando arquivo de configuração do Zabbix Agent..."
-    sudo apt-get install --reinstall zabbix-agent -y
+# Verificar se arquivo de configuração existe
+if [[ ! -f "/etc/zabbix/zabbix_agentd.conf" ]]; then
+    error "Arquivo /etc/zabbix/zabbix_agentd.conf não encontrado após instalação. Verifique a instalação do Zabbix Agent."
 fi
 
 # Backup da configuração original
