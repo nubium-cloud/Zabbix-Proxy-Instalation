@@ -293,7 +293,7 @@ info "Cliente ID: $TACTICAL_CLIENT_ID"
 info "Filial: $TACTICAL_CLIENT_FILIAL"
 
 # Executar instalação do Tactical RMM com os parâmetros corretos
-./rmmagent-linux.sh install 'https://mesh.centralmesh.nvirtual.com.br/meshagents?id=7Nss2LHe67mTwByGHQ3H3lOI4x8Awfk6kwbQgxSMMq%40qIJKjK6OOSBMWfXBYgPlb&installflags=2&meshinstall=6' 'https://api.centralmesh.nvirtual.com.br' "$TACTICAL_CLIENT_ID" "$TACTICAL_CLIENT_FILIAL" '7514f475df4c5f1303120fd65b18fb16b8f6baf06f73d1c2cfd4ebf83862eb82' 'server'
+./rmmagent-linux.sh install 'https://mesh.centralmesh.nvirtual.com.br/meshagents?id=7Nss2LHe67mTwByGHQ3H3lOI4x8Awfk6kwbQgxSMMq%40qIJKjK6OOSBMWfXBYgPlb&installflags=2&meshinstall=6' 'https://api.centralmesh.nvirtual.com.br' "$TACTICAL_CLIENT_ID" "$TACTICAL_CLIENT_FILIAL" 'ecd275ac5baa7e615674a38f2de333f00dd2635e179f9a08e4026db2e5856ae3' 'server'
 
 if [[ $? -eq 0 ]]; then
     log "Tactical RMM Agent instalado com sucesso!"
