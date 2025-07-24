@@ -1,0 +1,388 @@
+#!/bin/bash
+
+# Script de instalação automatizada para Ubuntu Server 24.04
+# Instala Zabbix Proxy, Zabbix Agent, Tactical RMM e configura IP fixo
+# Autor: Paulo Matheus
+# Data: $(date +%Y-%m-%d)
+
+set -e  # Para o script em caso de erro
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Função para log
+log() {
+    echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+error() {
+    echo -e "${RED}[ERRO] $1${NC}"
+    exit 1
+}
+
+warning() {
+    echo -e "${YELLOW}[AVISO] $1${NC}"
+}
+
+info() {
+    echo -e "${BLUE}[INFO] $1${NC}"
+}
+
+# Verificar se está rodando como root
+if [[ $EUID -eq 0 ]]; then
+   error "Este script não deve ser executado como root. Execute como usuário normal com sudo."
+fi
+
+# Verificar se é Ubuntu 24.04
+if ! grep -q "Ubuntu 24.04" /etc/os-release; then
+    error "Este script foi desenvolvido para Ubuntu 24.04"
+fi
+
+log "Iniciando instalação automatizada..."
+
+# Solicitar informações do usuário
+read -p "Digite o nome do Zabbix Proxy (ex: cliente-zbxproxy): " ZABBIX_HOSTNAME
+if [[ -z "$ZABBIX_HOSTNAME" ]]; then
+    error "Nome do Zabbix Proxy é obrigatório"
+fi
+
+# Solicitar informações do Tactical RMM
+echo
+log "Configuração do Tactical RMM..."
+read -p "Digite o ID do Cliente (ID_CLIENT): " TACTICAL_CLIENT_ID
+if [[ -z "$TACTICAL_CLIENT_ID" ]]; then
+    error "ID do Cliente é obrigatório"
+fi
+
+read -p "Digite a Filial do Cliente (FILIAL_CLIENT): " TACTICAL_CLIENT_FILIAL
+if [[ -z "$TACTICAL_CLIENT_FILIAL" ]]; then
+    error "Filial do Cliente é obrigatória"
+fi
+
+# Detectar IP atual e calcular IP fixo
+log "Detectando configuração de rede atual..."
+CURRENT_IP=$(ip route get 8.8.8.8 | awk '{print $7; exit}')
+INTERFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+GATEWAY=$(ip route | grep default | awk '{print $3; exit}')
+
+if [[ -z "$CURRENT_IP" ]]; then
+    error "Não foi possível detectar o IP atual"
+fi
+
+# Extrair a rede e calcular o IP .222
+IFS='.' read -ra IP_PARTS <<< "$CURRENT_IP"
+NETWORK="${IP_PARTS[0]}.${IP_PARTS[1]}.${IP_PARTS[2]}"
+PROPOSED_IP="${NETWORK}.222"
+
+info "IP atual detectado: $CURRENT_IP"
+info "Interface de rede: $INTERFACE"
+info "Gateway: $GATEWAY"
+info "IP proposto: $PROPOSED_IP"
+
+# Verificar se o IP .222 já está em uso
+log "Verificando se o IP $PROPOSED_IP já está em uso..."
+if ping -c 3 -W 2 "$PROPOSED_IP" > /dev/null 2>&1; then
+    warning "O IP $PROPOSED_IP já está em uso por outro equipamento!"
+    warning "Mantendo configuração DHCP para evitar conflitos de IP."
+
+    read -p "Deseja usar um IP fixo diferente? (s/N): " USE_DIFFERENT_IP
+    if [[ "$USE_DIFFERENT_IP" =~ ^[Ss]$ ]]; then
+        read -p "Digite o IP fixo desejado: " FIXED_IP
+        if [[ -z "$FIXED_IP" ]]; then
+            error "IP fixo é obrigatório"
+        fi
+
+        # Verificar se o IP customizado também está em uso
+        log "Verificando se o IP $FIXED_IP está disponível..."
+        if ping -c 3 -W 2 "$FIXED_IP" > /dev/null 2>&1; then
+            error "O IP $FIXED_IP também já está em uso! Escolha outro IP."
+        fi
+    else
+        info "Mantendo configuração DHCP atual."
+        KEEP_DHCP=true
+    fi
+else
+    log "IP $PROPOSED_IP está disponível!"
+    FIXED_IP="$PROPOSED_IP"
+
+    read -p "Confirma a configuração do IP fixo $FIXED_IP? (s/N): " CONFIRM_IP
+    if [[ ! "$CONFIRM_IP" =~ ^[Ss]$ ]]; then
+        read -p "Digite o IP fixo desejado (ou 'dhcp' para manter DHCP): " USER_INPUT
+        if [[ "$USER_INPUT" == "dhcp" ]]; then
+            info "Mantendo configuração DHCP atual."
+            KEEP_DHCP=true
+        elif [[ -n "$USER_INPUT" ]]; then
+            FIXED_IP="$USER_INPUT"
+            # Verificar se o IP customizado está em uso
+            log "Verificando se o IP $FIXED_IP está disponível..."
+            if ping -c 3 -W 2 "$FIXED_IP" > /dev/null 2>&1; then
+                error "O IP $FIXED_IP já está em uso! Escolha outro IP."
+            fi
+        else
+            error "IP fixo é obrigatório"
+        fi
+    fi
+fi
+
+# Detectar DNS servers
+DNS_SERVERS=$(systemd-resolve --status | grep "DNS Servers" | head -1 | awk '{print $3,$4}' | tr ' ' ',')
+if [[ -z "$DNS_SERVERS" ]]; then
+    DNS_SERVERS="8.8.8.8,8.8.4.4"
+    warning "Usando DNS padrão: $DNS_SERVERS"
+fi
+
+log "Atualizando sistema..."
+sudo apt-get update -y
+sudo apt-get upgrade -y
+
+log "Instalando pacotes básicos..."
+sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader curl wget -y
+
+# Configurar IP (fixo ou manter DHCP)
+if [[ "$KEEP_DHCP" == "true" ]]; then
+    log "Mantendo configuração DHCP atual..."
+    info "IP atual será mantido via DHCP: $CURRENT_IP"
+    FINAL_IP="$CURRENT_IP (DHCP)"
+else
+    log "Configurando IP fixo..."
+    NETPLAN_FILE="/etc/netplan/01-netcfg.yaml"
+
+    # Backup da configuração atual
+    sudo cp $NETPLAN_FILE ${NETPLAN_FILE}.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+
+    # Criar nova configuração netplan
+    sudo tee $NETPLAN_FILE > /dev/null <<EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    $INTERFACE:
+      dhcp4: false
+      addresses:
+        - $FIXED_IP/24
+      gateway4: $GATEWAY
+      nameservers:
+        addresses: [$(echo $DNS_SERVERS | tr ',' ' ')]
+EOF
+
+    log "Aplicando configuração de rede..."
+    sudo netplan apply
+
+    # Aguardar estabilização da rede
+    sleep 5
+
+    # Verificar conectividade
+    if ! ping -c 3 8.8.8.8 > /dev/null 2>&1; then
+        error "Falha na conectividade após configurar IP fixo. Verifique as configurações."
+    fi
+
+    log "IP fixo configurado com sucesso: $FIXED_IP"
+    FINAL_IP="$FIXED_IP (Fixo)"
+fi
+
+# Instalar Zabbix
+log "Baixando e instalando Zabbix 7.0..."
+cd /tmp
+wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
+
+sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
+sudo apt-get update -y
+
+log "Instalando Zabbix Proxy SQLite3..."
+sudo apt-get install zabbix-proxy-sqlite3 -y
+
+log "Configurando Zabbix Proxy..."
+# Backup da configuração original
+sudo cp /etc/zabbix/zabbix_proxy.conf /etc/zabbix/zabbix_proxy.conf.backup
+
+# Configurar zabbix_proxy.conf
+sudo tee /etc/zabbix/zabbix_proxy.conf > /dev/null <<EOF
+# Configuração do Zabbix Proxy
+# Gerado automaticamente em $(date)
+
+ProxyMode=0
+Server=monitora.nvirtual.com.br
+Hostname=$ZABBIX_HOSTNAME
+ListenPort=10051
+SourceIP=$FIXED_IP
+
+# Database
+DBHost=localhost
+DBName=/tmp/zabbix
+DBUser=
+DBPassword=
+
+# Performance
+StartPollers=20
+StartPingers=10
+StartDiscoverers=10
+StartPollersUnreachable=10
+StartTrappers=5
+StartDBSyncers=4
+
+# Remote commands
+EnableRemoteCommands=1
+
+# Logging
+LogFile=/var/log/zabbix/zabbix_proxy.log
+LogFileSize=10
+DebugLevel=3
+
+# Other
+ProxyLocalBuffer=0
+ProxyOfflineBuffer=1
+HeartbeatFrequency=60
+ConfigFrequency=3600
+DataSenderFrequency=1
+
+Timeout=4
+TrapperTimeout=300
+UnreachablePeriod=45
+UnavailableDelay=60
+UnreachableDelay=15
+
+# SNMP
+SNMPTrapperFile=/var/log/snmptrap/snmptrap.log
+StartSNMPTrapper=0
+
+# Housekeeping
+HousekeepingFrequency=1
+MaxHousekeeperDelete=5000
+
+# Cache
+CacheSize=8M
+HistoryCacheSize=16M
+HistoryIndexCacheSize=4M
+TrendCacheSize=4M
+ValueCacheSize=8M
+EOF
+
+log "Instalando Zabbix Agent..."
+sudo apt-get install zabbix-agent -y
+
+log "Configurando Zabbix Agent..."
+# Backup da configuração original
+sudo cp /etc/zabbix/zabbix_agentd.conf /etc/zabbix/zabbix_agentd.conf.backup
+
+# Configurar zabbix_agentd.conf
+sudo tee /etc/zabbix/zabbix_agentd.conf > /dev/null <<EOF
+# Configuração do Zabbix Agent
+# Gerado automaticamente em $(date)
+
+PidFile=/var/run/zabbix/zabbix_agentd.pid
+LogFile=/var/log/zabbix/zabbix_agentd.log
+LogFileSize=10
+DebugLevel=3
+
+Server=127.0.0.1
+ListenPort=10050
+ListenIP=0.0.0.0
+StartAgents=3
+
+ServerActive=127.0.0.1
+Hostname=$ZABBIX_HOSTNAME
+HostnameItem=system.hostname
+
+RefreshActiveChecks=120
+BufferSend=5
+BufferSize=100
+MaxLinesPerSecond=20
+
+# User parameters
+AllowRoot=0
+User=zabbix
+
+# Security
+EnableRemoteCommands=1
+LogRemoteCommands=1
+
+Timeout=3
+Include=/etc/zabbix/zabbix_agentd.d/*.conf
+
+UnsafeUserParameters=0
+EOF
+
+log "Habilitando e iniciando serviços Zabbix..."
+sudo systemctl enable zabbix-agent
+sudo systemctl enable zabbix-proxy
+sudo systemctl start zabbix-agent
+sudo systemctl start zabbix-proxy
+
+# Verificar status dos serviços
+sleep 5
+if ! sudo systemctl is-active --quiet zabbix-agent; then
+    error "Falha ao iniciar zabbix-agent"
+fi
+
+if ! sudo systemctl is-active --quiet zabbix-proxy; then
+    error "Falha ao iniciar zabbix-proxy"
+fi
+
+log "Serviços Zabbix iniciados com sucesso!"
+
+# Instalar Tactical RMM
+log "Instalando Tactical RMM Agent..."
+
+# Baixar e executar o script de instalação do Tactical RMM
+cd /tmp
+wget https://raw.githubusercontent.com/netvolt/LinuxRMM-Script/main/rmmagent-linux.sh
+sudo chmod +x rmmagent-linux.sh
+
+info "Instalando Tactical RMM Agent com as configurações fornecidas..."
+info "Cliente ID: $TACTICAL_CLIENT_ID"
+info "Filial: $TACTICAL_CLIENT_FILIAL"
+
+# Executar instalação do Tactical RMM com os parâmetros corretos
+./rmmagent-linux.sh install 'https://mesh.centralmesh.nvirtual.com.br/meshagents?id=7Nss2LHe67mTwByGHQ3H3lOI4x8Awfk6kwbQgxSMMq%40qIJKjK6OOSBMWfXBYgPlb&installflags=2&meshinstall=6' 'https://api.centralmesh.nvirtual.com.br' "$TACTICAL_CLIENT_ID" "$TACTICAL_CLIENT_FILIAL" '7514f475df4c5f1303120fd65b18fb16b8f6baf06f73d1c2cfd4ebf83862eb82' 'server'
+
+if [[ $? -eq 0 ]]; then
+    log "Tactical RMM Agent instalado com sucesso!"
+else
+    warning "Houve um problema na instalação do Tactical RMM Agent. Verifique os logs."
+fi
+
+log "Configuração de firewall básico..."
+sudo ufw allow 22/tcp
+sudo ufw allow 10050/tcp
+sudo ufw allow 10051/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+log "Instalação concluída com sucesso!"
+echo
+echo "=========================================="
+echo "RESUMO DA INSTALAÇÃO"
+echo "=========================================="
+echo "Configuração de IP: $FINAL_IP"
+echo "Interface de rede: $INTERFACE"
+echo "Gateway: $GATEWAY"
+echo "DNS: $DNS_SERVERS"
+echo "Hostname Zabbix: $ZABBIX_HOSTNAME"
+echo "Zabbix Server: monitora.nvirtual.com.br"
+echo
+echo "Tactical RMM:"
+echo "- Cliente ID: $TACTICAL_CLIENT_ID"
+echo "- Filial: $TACTICAL_CLIENT_FILIAL"
+echo "- Mesh Server: mesh.centralmesh.nvirtual.com.br"
+echo "- API Server: api.centralmesh.nvirtual.com.br"
+echo
+echo "Serviços instalados e ativos:"
+echo "- Zabbix Proxy (porta 10051)"
+echo "- Zabbix Agent (porta 10050)"
+echo "- Tactical RMM Agent"
+echo
+echo "Logs importantes:"
+echo "- Zabbix Proxy: /var/log/zabbix/zabbix_proxy.log"
+echo "- Zabbix Agent: /var/log/zabbix/zabbix_agentd.log"
+echo
+echo "Para verificar status dos serviços:"
+echo "sudo systemctl status zabbix-proxy"
+echo "sudo systemctl status zabbix-agent"
+echo "=========================================="
+
+log "Script finalizado!"
