@@ -32,10 +32,7 @@ info() {
     echo -e "${BLUE}[INFO] $1${NC}"
 }
 
-# Verificar se está rodando como root
-if [[ $EUID -eq 0 ]]; then
-   error "Este script não deve ser executado como root. Execute como usuário normal com sudo."
-fi
+# Verificar se está rodando como root (removido - permitindo execução como root)
 
 # Verificar se é Ubuntu 24.04
 if ! grep -q "Ubuntu 24.04" /etc/os-release; then

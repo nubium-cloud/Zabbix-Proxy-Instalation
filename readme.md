@@ -46,10 +46,29 @@ Este repositório contém scripts para instalação automatizada do Zabbix Proxy
 ## Como Usar
 
 ### 1. Preparação
+
+#### Opção A: Instalação Rápida (Recomendada)
 ```bash
-# Fazer download dos scripts
-wget https://raw.githubusercontent.com/seu-usuario/seu-repo/main/install_zabbix_tactical_rmm.sh
-wget https://raw.githubusercontent.com/seu-usuario/seu-repo/main/check_installation.sh
+# Em um Ubuntu Server 24.04 limpo:
+wget -O quick_install.sh https://raw.githubusercontent.com/nubium-cloud/Zabbix-Proxy-Instalation/main/quick_install.sh
+chmod +x quick_install.sh
+./quick_install.sh
+```
+
+#### Opção B: Instalação Rápida Segura (Token Interativo)
+```bash
+# Versão que solicita token durante execução:
+wget -O quick_install_secure.sh https://raw.githubusercontent.com/nubium-cloud/Zabbix-Proxy-Instalation/main/quick_install_secure.sh
+chmod +x quick_install_secure.sh
+./quick_install_secure.sh
+```
+
+#### Opção C: Download Manual
+```bash
+# Fazer download dos scripts (requer token GitHub para repositório privado)
+TOKEN="seu_token_github_aqui"
+wget --header="Authorization: token $TOKEN" https://raw.githubusercontent.com/nubium-cloud/Zabbix-Proxy-Instalation/main/install_zabbix_tactical_rmm.sh
+wget --header="Authorization: token $TOKEN" https://raw.githubusercontent.com/nubium-cloud/Zabbix-Proxy-Instalation/main/check_installation.sh
 
 # Dar permissão de execução
 chmod +x install_zabbix_tactical_rmm.sh
