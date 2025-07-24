@@ -139,20 +139,50 @@ sudo apt-get upgrade -y
 log "Instalando pacotes básicos..."
 sudo apt-get install vim traceroute snmp build-essential snmp-mibs-downloader curl wget -y
 
-# Instalar Zabbix
-log "Baixando e instalando Zabbix 7.0..."
-cd /tmp
-wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
+# Verificar se Zabbix já está instalado
+ZABBIX_PROXY_INSTALLED=false
+ZABBIX_AGENT_INSTALLED=false
 
-sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
-sudo apt-get update -y
+if dpkg -l | grep -q "zabbix-proxy"; then
+    warning "Zabbix Proxy já está instalado. Será reconfigurado."
+    ZABBIX_PROXY_INSTALLED=true
+fi
 
-log "Instalando Zabbix Proxy SQLite3..."
-sudo apt-get install zabbix-proxy-sqlite3 -y
+if dpkg -l | grep -q "zabbix-agent"; then
+    warning "Zabbix Agent já está instalado. Será reconfigurado."
+    ZABBIX_AGENT_INSTALLED=true
+fi
+
+# Instalar Zabbix se não estiver instalado
+if [[ "$ZABBIX_PROXY_INSTALLED" == "false" ]] || [[ "$ZABBIX_AGENT_INSTALLED" == "false" ]]; then
+    log "Baixando e instalando Zabbix 7.0..."
+    cd /tmp
+
+    # Verificar se o repositório já foi adicionado
+    if ! dpkg -l | grep -q "zabbix-release"; then
+        wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
+        sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
+        sudo apt-get update -y
+    fi
+
+    if [[ "$ZABBIX_PROXY_INSTALLED" == "false" ]]; then
+        log "Instalando Zabbix Proxy SQLite3..."
+        sudo apt-get install zabbix-proxy-sqlite3 -y
+    fi
+else
+    log "Zabbix já instalado. Prosseguindo com reconfiguração..."
+fi
 
 log "Configurando Zabbix Proxy..."
+
+# Se Zabbix já estava instalado, reinstalar arquivo de configuração limpo
+if [[ "$ZABBIX_PROXY_INSTALLED" == "true" ]]; then
+    log "Reinstalando arquivo de configuração do Zabbix Proxy..."
+    sudo apt-get install --reinstall zabbix-proxy-sqlite3 -y
+fi
+
 # Backup da configuração original
-sudo cp /etc/zabbix/zabbix_proxy.conf /etc/zabbix/zabbix_proxy.conf.backup
+sudo cp /etc/zabbix/zabbix_proxy.conf /etc/zabbix/zabbix_proxy.conf.backup.$(date +%Y%m%d_%H%M%S)
 
 # Alterar apenas as linhas específicas no arquivo de configuração
 sudo sed -i "s/^# Server=.*/Server=monitora.nvirtual.com.br/" /etc/zabbix/zabbix_proxy.conf
@@ -172,12 +202,21 @@ sudo sed -i "s/^StartDiscoverers=.*/StartDiscoverers=10/" /etc/zabbix/zabbix_pro
 sudo sed -i "s/^# StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
 sudo sed -i "s/^StartPollersUnreachable=.*/StartPollersUnreachable=10/" /etc/zabbix/zabbix_proxy.conf
 
-log "Instalando Zabbix Agent..."
-sudo apt-get install zabbix-agent -y
+if [[ "$ZABBIX_AGENT_INSTALLED" == "false" ]]; then
+    log "Instalando Zabbix Agent..."
+    sudo apt-get install zabbix-agent -y
+fi
 
 log "Configurando Zabbix Agent..."
+
+# Se Zabbix Agent já estava instalado, reinstalar arquivo de configuração limpo
+if [[ "$ZABBIX_AGENT_INSTALLED" == "true" ]]; then
+    log "Reinstalando arquivo de configuração do Zabbix Agent..."
+    sudo apt-get install --reinstall zabbix-agent -y
+fi
+
 # Backup da configuração original
-sudo cp /etc/zabbix/zabbix_agentd.conf /etc/zabbix/zabbix_agentd.conf.backup
+sudo cp /etc/zabbix/zabbix_agentd.conf /etc/zabbix/zabbix_agentd.conf.backup.$(date +%Y%m%d_%H%M%S)
 
 # Alterar apenas as linhas específicas no arquivo de configuração
 sudo sed -i "s/^# Server=.*/Server=127.0.0.1/" /etc/zabbix/zabbix_agentd.conf
