@@ -41,9 +41,9 @@ log "Bem Vindo(a) a instalação automatizada do Zabbix Proxy, Zabbix Agent e Ta
 echo "
                                                                                                            
                                                                                                                                                                                                                    
-                    #####                                                                                  
-    #####################                                                                                  
-   ##                ####                                                                                   
+                      ####                                                                                  
+    ################# ####                                                                                  
+   #                  ####                                                                                   
    ##  ####       ###  ## ####         #### ### ############ ############        ###     ####       ###         
    ##  ######     ###  ##  ####       ####  ### ###     #####   ###   ###        ###    ######      ###         
    ##  ########   ###  ##   ####     ###    ### ###       ###   ###   ###        ###   ### ####     ###         
@@ -51,8 +51,8 @@ echo "
    ##  ###    #######  ##      #######      ### ###    #####    ###   ###       #### ###     ####   ###         
    ##  ###      #####  ##       #####       ### ###     #####   ###    ############ ###        ###  ########### 
    ##  ###        ###  ##        ###        ### ###       ####  ###     ########## ###          ### ########### 
-  ####              ####                                                                       
-  #####################                                                                              INFO 1578
+  ####                 #                                                                       
+  #### ################                                                                              INFO 1578
   ####                                                                                             
                                                                                                            
 "
@@ -429,12 +429,52 @@ else
 fi
 
 log "Configuração de firewall básico..."
-sudo ufw allow 22/tcp
-sudo ufw allow 10050/tcp
-sudo ufw allow 10051/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
+
+# Verificar se ufw está instalado, se não, instalar
+if ! command -v ufw &> /dev/null; then
+    log "UFW não encontrado. Instalando..."
+    sudo apt-get update -y
+    sudo apt-get install ufw -y
+
+    # Verificar se a instalação foi bem-sucedida
+    if ! command -v ufw &> /dev/null; then
+        warning "Não foi possível instalar o UFW. Configurando firewall com iptables..."
+
+        # Configuração básica com iptables como fallback
+        sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 10050 -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 10051 -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+        sudo iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        sudo iptables -A INPUT -i lo -j ACCEPT
+
+        # Salvar regras do iptables
+        if command -v iptables-save &> /dev/null; then
+            sudo iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        fi
+
+        log "Firewall configurado com iptables"
+    else
+        log "UFW instalado com sucesso. Configurando..."
+        sudo ufw allow 22/tcp
+        sudo ufw allow 10050/tcp
+        sudo ufw allow 10051/tcp
+        sudo ufw allow 80/tcp
+        sudo ufw allow 443/tcp
+        sudo ufw --force enable
+        log "Firewall UFW configurado"
+    fi
+else
+    log "UFW já está instalado. Configurando..."
+    sudo ufw allow 22/tcp
+    sudo ufw allow 10050/tcp
+    sudo ufw allow 10051/tcp
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    sudo ufw --force enable
+    log "Firewall UFW configurado"
+fi
 
 # Configurar IP (fixo ou manter DHCP) - APÓS todas as instalações
 log "Configurando rede..."
