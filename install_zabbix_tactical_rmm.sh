@@ -181,25 +181,57 @@ if [[ "$NEED_PROXY_INSTALL" == "true" ]] || [[ "$NEED_AGENT_INSTALL" == "true" ]
     log "Configurando repositório e instalando/reinstalando Zabbix..."
     cd /tmp
 
-    # Verificar se o repositório já foi adicionado
-    if ! dpkg -l | grep -q "zabbix-release"; then
-        log "Adicionando repositório Zabbix 7.0..."
+    # Verificar e configurar repositório Zabbix
+    log "Verificando repositório Zabbix..."
+
+    # Verificar se repositórios Zabbix estão configurados
+    if ! ls /etc/apt/sources.list.d/ | grep -q zabbix 2>/dev/null; then
+        log "Repositório Zabbix não encontrado. Configurando..."
+
+        # Remover possíveis instalações antigas do zabbix-release
+        sudo apt-get remove --purge zabbix-release -y 2>/dev/null || true
+
+        # Baixar e instalar zabbix-release
+        cd /tmp
+        rm -f zabbix-release_latest_7.0+ubuntu24.04_all.deb
         wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
         sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
+
+        # Atualizar lista de pacotes
         sudo apt-get update -y
     else
         log "Repositório Zabbix já configurado. Atualizando lista de pacotes..."
         sudo apt-get update -y
     fi
 
-    # Verificar se o pacote está disponível no repositório
+    # Verificar se o pacote está disponível
+    log "Verificando disponibilidade do pacote zabbix-proxy-sqlite3..."
     if ! apt-cache show zabbix-proxy-sqlite3 > /dev/null 2>&1; then
         warning "Pacote zabbix-proxy-sqlite3 não encontrado. Tentando reconfigurar repositório..."
+
+        # Forçar reconfiguração do repositório
+        sudo rm -f /etc/apt/sources.list.d/zabbix.list
+        cd /tmp
+        rm -f zabbix-release_latest_7.0+ubuntu24.04_all.deb
+        wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
+        sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
         sudo apt-get update -y
-        sudo apt-get install -f -y
+
+        # Verificar novamente
         if ! apt-cache show zabbix-proxy-sqlite3 > /dev/null 2>&1; then
-            error "Não foi possível encontrar o pacote zabbix-proxy-sqlite3. Verifique o repositório Zabbix."
+            warning "Ainda não foi possível encontrar o pacote. Informações de debug:"
+            info "Repositórios Zabbix configurados:"
+            ls -la /etc/apt/sources.list.d/ | grep zabbix || echo "Nenhum repositório Zabbix encontrado"
+            info "Conteúdo do arquivo zabbix.list:"
+            cat /etc/apt/sources.list.d/zabbix.list 2>/dev/null || echo "Arquivo zabbix.list não encontrado"
+            info "Testando conectividade com repositório Zabbix:"
+            curl -I https://repo.zabbix.com/zabbix/7.0/ubuntu/ 2>/dev/null || echo "Falha na conectividade"
+            error "Não foi possível encontrar o pacote zabbix-proxy-sqlite3. Verifique conectividade e repositório Zabbix."
+        else
+            log "✅ Pacote zabbix-proxy-sqlite3 encontrado após reconfiguração"
         fi
+    else
+        log "✅ Pacote zabbix-proxy-sqlite3 disponível"
     fi
 
     if [[ "$NEED_PROXY_INSTALL" == "true" ]]; then
