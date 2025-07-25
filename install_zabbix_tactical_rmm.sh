@@ -224,9 +224,30 @@ if [[ "$NEED_PROXY_INSTALL" == "true" ]] || [[ "$NEED_AGENT_INSTALL" == "true" ]
             ls -la /etc/apt/sources.list.d/ | grep zabbix || echo "Nenhum repositório Zabbix encontrado"
             info "Conteúdo do arquivo zabbix.list:"
             cat /etc/apt/sources.list.d/zabbix.list 2>/dev/null || echo "Arquivo zabbix.list não encontrado"
-            info "Testando conectividade com repositório Zabbix:"
-            curl -I https://repo.zabbix.com/zabbix/7.0/ubuntu/ 2>/dev/null || echo "Falha na conectividade"
-            error "Não foi possível encontrar o pacote zabbix-proxy-sqlite3. Verifique conectividade e repositório Zabbix."
+
+            # Forçar criação manual do arquivo zabbix.list
+            warning "Criando arquivo zabbix.list manualmente..."
+            sudo tee /etc/apt/sources.list.d/zabbix.list > /dev/null <<EOF
+# Zabbix 7.0 repository for Ubuntu 24.04 (Noble)
+deb [signed-by=/usr/share/keyrings/zabbix-official-repo.gpg] https://repo.zabbix.com/zabbix/7.0/ubuntu noble main
+deb-src [signed-by=/usr/share/keyrings/zabbix-official-repo.gpg] https://repo.zabbix.com/zabbix/7.0/ubuntu noble main
+EOF
+
+            # Baixar e adicionar chave GPG
+            log "Configurando chave GPG do repositório Zabbix..."
+            wget -qO- https://repo.zabbix.com/zabbix-official-repo.key | sudo gpg --dearmor -o /usr/share/keyrings/zabbix-official-repo.gpg
+
+            # Atualizar novamente
+            sudo apt-get update -y
+
+            # Verificar uma última vez
+            if ! apt-cache show zabbix-proxy-sqlite3 > /dev/null 2>&1; then
+                info "Testando conectividade com repositório Zabbix:"
+                curl -I https://repo.zabbix.com/zabbix/7.0/ubuntu/ 2>/dev/null || echo "Falha na conectividade"
+                error "Não foi possível encontrar o pacote zabbix-proxy-sqlite3 mesmo após configuração manual. Verifique conectividade."
+            else
+                log "✅ Pacote zabbix-proxy-sqlite3 encontrado após configuração manual"
+            fi
         else
             log "✅ Pacote zabbix-proxy-sqlite3 encontrado após reconfiguração"
         fi
