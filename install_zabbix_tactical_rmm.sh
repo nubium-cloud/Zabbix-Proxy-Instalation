@@ -32,13 +32,13 @@ info() {
     echo -e "${BLUE}[INFO] $1${NC}"
 }
 
-# Verificar se está rodando como root (removido - permitindo execução como root)
-
 # Verificar se é Ubuntu 24.04
 if ! grep -q "Ubuntu 24.04" /etc/os-release; then
     error "Este script foi desenvolvido para Ubuntu 24.04"
 fi
 
+log "Bem Vindo(a) a instalação automatizada do Zabbix Proxy, Zabbix Agent e Tactical RMM para Ubuntu Server 24.04."
+log "Desenvolvido por Paulo Matheus - NVirtual"
 log "Iniciando instalação automatizada..."
 
 # Solicitar informações do usuário
@@ -187,12 +187,27 @@ if [[ "$NEED_PROXY_INSTALL" == "true" ]] || [[ "$NEED_AGENT_INSTALL" == "true" ]
         wget https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0%2Bubuntu24.04_all.deb
         sudo dpkg -i zabbix-release_latest_7.0+ubuntu24.04_all.deb
         sudo apt-get update -y
+    else
+        log "Repositório Zabbix já configurado. Atualizando lista de pacotes..."
+        sudo apt-get update -y
+    fi
+
+    # Verificar se o pacote está disponível no repositório
+    if ! apt-cache show zabbix-proxy-sqlite3 > /dev/null 2>&1; then
+        warning "Pacote zabbix-proxy-sqlite3 não encontrado. Tentando reconfigurar repositório..."
+        sudo apt-get update -y
+        sudo apt-get install -f -y
+        if ! apt-cache show zabbix-proxy-sqlite3 > /dev/null 2>&1; then
+            error "Não foi possível encontrar o pacote zabbix-proxy-sqlite3. Verifique o repositório Zabbix."
+        fi
     fi
 
     if [[ "$NEED_PROXY_INSTALL" == "true" ]]; then
         if [[ "$ZABBIX_PROXY_INSTALLED" == "true" ]]; then
             log "Reinstalando Zabbix Proxy SQLite3 (arquivo .conf ausente)..."
             sudo apt-get remove --purge zabbix-proxy-sqlite3 -y
+            sudo apt-get autoremove -y
+            sudo apt-get update -y
             sudo apt-get install zabbix-proxy-sqlite3 -y
         else
             log "Instalando Zabbix Proxy SQLite3..."
@@ -235,6 +250,8 @@ if [[ "$NEED_AGENT_INSTALL" == "true" ]]; then
     if [[ "$ZABBIX_AGENT_INSTALLED" == "true" ]]; then
         log "Reinstalando Zabbix Agent (arquivo .conf ausente)..."
         sudo apt-get remove --purge zabbix-agent -y
+        sudo apt-get autoremove -y
+        sudo apt-get update -y
         sudo apt-get install zabbix-agent -y
     else
         log "Instalando Zabbix Agent..."
@@ -263,6 +280,16 @@ sudo sed -i "s/^# EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/z
 sudo sed -i "s/^EnableRemoteCommands=.*/EnableRemoteCommands=1/" /etc/zabbix/zabbix_agentd.conf
 
 log "Habilitando e iniciando serviços Zabbix..."
+
+# Desmascarar serviços se estiverem mascarados
+sudo systemctl unmask zabbix-agent 2>/dev/null || true
+sudo systemctl unmask zabbix-proxy 2>/dev/null || true
+
+# Parar serviços se estiverem rodando
+sudo systemctl stop zabbix-agent 2>/dev/null || true
+sudo systemctl stop zabbix-proxy 2>/dev/null || true
+
+# Habilitar e iniciar serviços
 sudo systemctl enable zabbix-agent
 sudo systemctl enable zabbix-proxy
 sudo systemctl start zabbix-agent
@@ -270,15 +297,44 @@ sudo systemctl start zabbix-proxy
 
 # Verificar status dos serviços
 sleep 5
-if ! sudo systemctl is-active --quiet zabbix-agent; then
-    error "Falha ao iniciar zabbix-agent"
+
+log "Verificando status dos serviços..."
+
+# Verificar zabbix-agent
+if sudo systemctl is-active --quiet zabbix-agent; then
+    log "✅ Zabbix Agent iniciado com sucesso"
+else
+    warning "❌ Falha ao iniciar zabbix-agent"
+    info "Status do zabbix-agent:"
+    sudo systemctl status zabbix-agent --no-pager -l
+    info "Tentando reiniciar zabbix-agent..."
+    sudo systemctl restart zabbix-agent
+    sleep 3
+    if sudo systemctl is-active --quiet zabbix-agent; then
+        log "✅ Zabbix Agent reiniciado com sucesso"
+    else
+        error "❌ Falha crítica ao iniciar zabbix-agent. Verifique os logs: sudo journalctl -u zabbix-agent -f"
+    fi
 fi
 
-if ! sudo systemctl is-active --quiet zabbix-proxy; then
-    error "Falha ao iniciar zabbix-proxy"
+# Verificar zabbix-proxy
+if sudo systemctl is-active --quiet zabbix-proxy; then
+    log "✅ Zabbix Proxy iniciado com sucesso"
+else
+    warning "❌ Falha ao iniciar zabbix-proxy"
+    info "Status do zabbix-proxy:"
+    sudo systemctl status zabbix-proxy --no-pager -l
+    info "Tentando reiniciar zabbix-proxy..."
+    sudo systemctl restart zabbix-proxy
+    sleep 3
+    if sudo systemctl is-active --quiet zabbix-proxy; then
+        log "✅ Zabbix Proxy reiniciado com sucesso"
+    else
+        error "❌ Falha crítica ao iniciar zabbix-proxy. Verifique os logs: sudo journalctl -u zabbix-proxy -f"
+    fi
 fi
 
-log "Serviços Zabbix iniciados com sucesso!"
+log "Serviços Zabbix configurados!"
 
 # Instalar Tactical RMM
 log "Instalando Tactical RMM Agent..."
